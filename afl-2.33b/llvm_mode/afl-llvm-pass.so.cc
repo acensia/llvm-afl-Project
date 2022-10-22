@@ -37,7 +37,8 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define TW 0
+#define TW 
+#define PRE_AFL
 //#define debug 0
 
 using namespace llvm;
@@ -142,12 +143,11 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   {
 
-    errs()<<"Starting Function----------------------------------------\n\n";
-    for (auto &BB : F) {
-
-
+    errs()<<"Starting Function----------------------------------------\n\n"<<F;
 
 #ifdef TW
+#ifdef PRE_AFL
+    for(auto &BB : F)
       for (auto &I : BB) {
 	if (auto icmp = dyn_cast<ICmpInst>(&I)) {
 	  if (!icmp->isEquality()) continue;
@@ -155,6 +155,56 @@ bool AFLCoverage::runOnModule(Module &M) {
 	  ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
 	  unsigned int bits = num->getZExtValue();
 	  if (bits < 0x100) continue;
+	  Value *target = I.getOperand(0);
+	  int byte = target->getType()->getIntegerBitWidth() / 8;
+	  BranchInst *old_br = cast<BranchInst>(I.getNextNode());
+
+	  BasicBlock *BB_true = old_br->getSuccessor(0);
+	  BasicBlock *BB_false = old_br->getSuccessor(1);
+
+	  BranchInst *old_it = old_br;
+	  if (byte > 1) {
+	    IRBuilder<> build(old_it);
+	    Value *bit = build.CreateTrunc(target, Type::getInt8Ty(C));
+	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bits & 0xff));
+	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
+	    old_br->setCondition(new_icmp);
+	  }
+
+	  for (int i=1; i < byte ; ++i) {
+	    BasicBlock *new_BB = BasicBlock::Create(C, "Split", &F);
+	    BranchInst *new_br = BranchInst::Create(BB_true, BB_false, &I, new_BB);
+	    
+	    IRBuilder<> build(new_br);
+	    ConstantInt *shf = ConstantInt::get(Type::getInt8Ty(C), i*8);
+	    Value *sh = build.CreateLShr(target, shf);
+	    Value *bit = build.CreateTrunc(sh, Type::getInt8Ty(C));
+	    unsigned int bit_seg = bits >> i*8;
+	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bit_seg & 0xff));
+	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
+	    new_br->setCondition(new_icmp);
+
+	    old_it->setSuccessor(0, new_BB);
+	    old_it = new_br;
+
+	  }
+	}
+      }
+    errs() << "Modified Func------------------------------\n"<<F;
+#endif
+#endif
+
+    for (auto &BB : F) {
+
+#ifdef TW
+#ifndef PRE_AFL
+      for (auto &I : BB) {
+	if (auto icmp = dyn_cast<ICmpInst>(&I)) {
+	  if (!icmp->isEquality()) continue;
+	  if (!isa<ConstantInt>(I.getOperand(1))) continue;	
+	  ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
+	  unsigned int bits = num->getZExtValue();
+//	  if (bits < 0x100) continue;
 	  Value *target = I.getOperand(0);
 	  int bite = target->getType()->getIntegerBitWidth() / 4;
 	  BranchInst *old_br = cast<BranchInst>(I.getNextNode());
@@ -222,7 +272,9 @@ rs()<<"For here !! ------------------------------------------------\n"<<F;
 //  }
 */  //Wrong
 #endif
-      errs()<<"Modified BB------------------------------------\n"<<BB;
+#endif
+
+//      errs()<<"Modified BB------------------------------------\n"<<BB;
 
 #ifndef debug
 

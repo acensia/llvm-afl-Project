@@ -1,0 +1,27 @@
+start_time        : 1636705017
+last_update       : 1636705053
+fuzzer_pid        : 12875
+cycles_done       : 16
+execs_done        : 90460
+execs_per_sec     : 615.38
+paths_total       : 8
+paths_favored     : 7
+paths_found       : 7
+paths_imported    : 0
+max_depth         : 4
+cur_path          : 7
+pending_favs      : 0
+pending_total     : 0
+variable_paths    : 0
+stability         : 100.00%
+bitmap_cvg        : 0.02%
+unique_crashes    : 1
+unique_hangs      : 0
+last_path         : 1636705022
+last_crash        : 1636705022
+last_hang         : 0
+execs_since_crash : 79448
+exec_timeout      : 20
+afl_banner        : bin-strong
+afl_version       : 2.33b
+command_line      : /home/vagrant/snu-software-security-public/prog-assign-2/test/../afl-2.33b/afl-fuzz -i /home/vagrant/snu-software-security-public/prog-assign-2/test/input -o /home/vagrant/snu-software-security-public/prog-assign-2/test/output-strong /home/vagrant/snu-software-security-public/prog-assign-2/test/bin-strong @@
