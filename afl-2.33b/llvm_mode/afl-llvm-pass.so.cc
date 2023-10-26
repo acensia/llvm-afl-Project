@@ -22,49 +22,43 @@
 
  */
 
-#include "../config.h"
-#include "../debug.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "../config.h"
+#include "../debug.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
-#define TW 
+#define TW
 #define PRE_AFL
-//#define debug 0
+// #define debug 0
 
 using namespace llvm;
 
 namespace {
 
-  class AFLCoverage : public ModulePass {
+class AFLCoverage : public ModulePass {
+ public:
+  static char ID;
+  AFLCoverage() : ModulePass(ID) {}
 
-    public:
+  bool runOnModule(Module &M) override;
 
-      static char ID;
-      AFLCoverage() : ModulePass(ID) { }
+  const char *getPassName() const override {
+    return "American Fuzzy Lop Instrumentation";
+  }
+};
 
-      bool runOnModule(Module &M) override;
-
-      const char *getPassName() const override {
-        return "American Fuzzy Lop Instrumentation";
-      }
-
-  };
-
-}
-
+}  // namespace
 
 char AFLCoverage::ID = 0;
-
 
 /*  Wrong
 #ifdef TW
@@ -93,12 +87,9 @@ void branch_mod (BranchInst *BR, bool swt){
 */
 
 bool AFLCoverage::runOnModule(Module &M) {
-
-
-
   LLVMContext &C = M.getContext();
 
-  IntegerType *Int8Ty  = IntegerType::getInt8Ty(C);
+  IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
   IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
 
   /* Show a banner */
@@ -106,22 +97,21 @@ bool AFLCoverage::runOnModule(Module &M) {
   char be_quiet = 0;
 
   if (isatty(2) && !getenv("AFL_QUIET")) {
+    SAYF(cCYA "afl-llvm-pass " cBRI VERSION cRST
+              " by <lszekeres@google.com>\n");
 
-    SAYF(cCYA "afl-llvm-pass " cBRI VERSION cRST " by <lszekeres@google.com>\n");
-
-  } else be_quiet = 1;
+  } else
+    be_quiet = 1;
 
   /* Decide instrumentation ratio */
 
-  char* inst_ratio_str = getenv("AFL_INST_RATIO");
+  char *inst_ratio_str = getenv("AFL_INST_RATIO");
   unsigned int inst_ratio = 100;
 
   if (inst_ratio_str) {
-
     if (sscanf(inst_ratio_str, "%u", &inst_ratio) != 1 || !inst_ratio ||
         inst_ratio > 100)
       FATAL("Bad value of AFL_INST_RATIO (must be between 1 and 100)");
-
   }
 
   /* Get globals for the SHM region and the previous location. Note that
@@ -132,8 +122,8 @@ bool AFLCoverage::runOnModule(Module &M) {
                          GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
 
   GlobalVariable *AFLPrevLoc = new GlobalVariable(
-      M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc",
-      0, GlobalVariable::GeneralDynamicTLSModel, 0, false);
+      M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc", 0,
+      GlobalVariable::GeneralDynamicTLSModel, 0, false);
 
   /* Instrument all the things! */
 
@@ -142,130 +132,131 @@ bool AFLCoverage::runOnModule(Module &M) {
   for (auto &F : M)
 
   {
-
-    errs()<<"Starting Function----------------------------------------\n\n"<<F;
+    errs() << "Starting Function----------------------------------------\n\n";
 
 #ifdef TW
 #ifdef PRE_AFL
-    for(auto &BB : F)
+    for (auto &BB : F)
       for (auto &I : BB) {
-	if (auto icmp = dyn_cast<ICmpInst>(&I)) {
-	  if (!icmp->isEquality()) continue;
-	  if (!isa<ConstantInt>(I.getOperand(1))) continue;	
-	  ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
-	  unsigned int bits = num->getZExtValue();
-	  if (bits < 0x100) continue;
-	  Value *target = I.getOperand(0);
-	  int byte = target->getType()->getIntegerBitWidth() / 8;
-	  BranchInst *old_br = cast<BranchInst>(I.getNextNode());
+        if (auto icmp = dyn_cast<ICmpInst>(&I)) {
+          if (!icmp->isEquality()) continue;
+          if (!isa<ConstantInt>(I.getOperand(1))) continue;
+          ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
+          unsigned int bits = num->getZExtValue();
+          if (bits < 0x100) continue;
+          Value *target = I.getOperand(0);
+          int byte = target->getType()->getIntegerBitWidth() / 8;
+          BranchInst *old_br = cast<BranchInst>(I.getNextNode());
 
-	  BasicBlock *BB_true = old_br->getSuccessor(0);
-	  BasicBlock *BB_false = old_br->getSuccessor(1);
+          BasicBlock *BB_true = old_br->getSuccessor(0);
+          BasicBlock *BB_false = old_br->getSuccessor(1);
 
-	  BranchInst *old_it = old_br;
-	  if (byte > 1) {
-	    IRBuilder<> build(old_it);
-	    Value *bit = build.CreateTrunc(target, Type::getInt8Ty(C));
-	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bits & 0xff));
-	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
-	    old_br->setCondition(new_icmp);
-	  }
+          BranchInst *old_it = old_br;
+          if (byte > 1) {
+            IRBuilder<> build(old_it);
+            Value *bit = build.CreateTrunc(target, Type::getInt8Ty(C));
+            ConstantInt *seg =
+                ConstantInt::get(Type::getInt8Ty(C), (bits & 0xff));
+            Value *new_icmp = build.CreateICmpEQ(bit, seg);
+            old_br->setCondition(new_icmp);
+          }
 
-	  for (int i=1; i < byte ; ++i) {
-	    BasicBlock *new_BB = BasicBlock::Create(C, "Split", &F);
-	    BranchInst *new_br = BranchInst::Create(BB_true, BB_false, &I, new_BB);
-	    
-	    IRBuilder<> build(new_br);
-	    ConstantInt *shf = ConstantInt::get(Type::getInt8Ty(C), i*8);
-	    Value *sh = build.CreateLShr(target, shf);
-	    Value *bit = build.CreateTrunc(sh, Type::getInt8Ty(C));
-	    unsigned int bit_seg = bits >> i*8;
-	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bit_seg & 0xff));
-	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
-	    new_br->setCondition(new_icmp);
+          for (int i = 1; i < byte; ++i) {
+            BasicBlock *new_BB = BasicBlock::Create(C, "Split", &F);
+            BranchInst *new_br =
+                BranchInst::Create(BB_true, BB_false, &I, new_BB);
 
-	    old_it->setSuccessor(0, new_BB);
-	    old_it = new_br;
+            IRBuilder<> build(new_br);
+            ConstantInt *shf = ConstantInt::get(Type::getInt8Ty(C), i * 8);
+            Value *sh = build.CreateLShr(target, shf);
+            Value *bit = build.CreateTrunc(sh, Type::getInt8Ty(C));
+            unsigned int bit_seg = bits >> i * 8;
+            ConstantInt *seg =
+                ConstantInt::get(Type::getInt8Ty(C), (bit_seg & 0xff));
+            Value *new_icmp = build.CreateICmpEQ(bit, seg);
+            new_br->setCondition(new_icmp);
 
-	  }
-	}
+            old_it->setSuccessor(0, new_BB);
+            old_it = new_br;
+          }
+        }
       }
-    errs() << "Modified Func------------------------------\n"<<F;
+    errs() << "Modified Func------------------------------\n" << F;
 #endif
 #endif
 
     for (auto &BB : F) {
-
 #ifdef TW
 #ifndef PRE_AFL
       for (auto &I : BB) {
-	if (auto icmp = dyn_cast<ICmpInst>(&I)) {
-	  if (!icmp->isEquality()) continue;
-	  if (!isa<ConstantInt>(I.getOperand(1))) continue;	
-	  ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
-	  unsigned int bits = num->getZExtValue();
-//	  if (bits < 0x100) continue;
-	  Value *target = I.getOperand(0);
-	  int bite = target->getType()->getIntegerBitWidth() / 4;
-	  BranchInst *old_br = cast<BranchInst>(I.getNextNode());
+        if (auto icmp = dyn_cast<ICmpInst>(&I)) {
+          if (!icmp->isEquality()) continue;
+          if (!isa<ConstantInt>(I.getOperand(1))) continue;
+          ConstantInt *num = cast<ConstantInt>(I.getOperand(1));
+          unsigned int bits = num->getZExtValue();
+          //	  if (bits < 0x100) continue;
+          Value *target = I.getOperand(0);
+          int bite = target->getType()->getIntegerBitWidth() / 4;
+          BranchInst *old_br = cast<BranchInst>(I.getNextNode());
 
-	  BasicBlock *BB_true = old_br->getSuccessor(0);
-	  BasicBlock *BB_false = old_br->getSuccessor(1);
+          BasicBlock *BB_true = old_br->getSuccessor(0);
+          BasicBlock *BB_false = old_br->getSuccessor(1);
 
-	  BranchInst *old_it = old_br;
-	  if (bite > 2) {
-	    IRBuilder<> build(old_it);
-	    Value *bit = build.CreateTrunc(target, Type::getInt8Ty(C), "name");
-	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bits & 0xff));
-	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
-	    old_br->setCondition(new_icmp);
-	  }
+          BranchInst *old_it = old_br;
+          if (bite > 2) {
+            IRBuilder<> build(old_it);
+            Value *bit = build.CreateTrunc(target, Type::getInt8Ty(C), "name");
+            ConstantInt *seg =
+                ConstantInt::get(Type::getInt8Ty(C), (bits & 0xff));
+            Value *new_icmp = build.CreateICmpEQ(bit, seg);
+            old_br->setCondition(new_icmp);
+          }
 
-	  while (bite > 2) {
-	    IRBuilder<> build(old_it);
-	    ConstantInt *shf = ConstantInt::get(Type::getInt8Ty(C), (bite-2)*4);
-	    Value *sh = build.CreateLShr(target, shf);
-	    Value *bit = build.CreateTrunc(sh, Type::getInt8Ty(C), "name");
-	    unsigned int bit_seg = bits >> (bite-2)*4;
-	    ConstantInt *seg = ConstantInt::get(Type::getInt8Ty(C), (bit_seg & 0xff));
-	    Value *new_icmp = build.CreateICmpEQ(bit, seg);
+          while (bite > 2) {
+            IRBuilder<> build(old_it);
+            ConstantInt *shf =
+                ConstantInt::get(Type::getInt8Ty(C), (bite - 2) * 4);
+            Value *sh = build.CreateLShr(target, shf);
+            Value *bit = build.CreateTrunc(sh, Type::getInt8Ty(C), "name");
+            unsigned int bit_seg = bits >> (bite - 2) * 4;
+            ConstantInt *seg =
+                ConstantInt::get(Type::getInt8Ty(C), (bit_seg & 0xff));
+            Value *new_icmp = build.CreateICmpEQ(bit, seg);
 
-	    BasicBlock *new_BB = BasicBlock::Create(C, "created", &F);
-	    BranchInst *new_br = BranchInst::Create(BB_true, BB_false, new_icmp, new_BB);
-	    old_it->setSuccessor(0, new_BB);
-	    old_it = new_br;
+            BasicBlock *new_BB = BasicBlock::Create(C, "created", &F);
+            BranchInst *new_br =
+                BranchInst::Create(BB_true, BB_false, new_icmp, new_BB);
+            old_it->setSuccessor(0, new_BB);
+            old_it = new_br;
 
-	    bite -= 2;
-	  }
-	}
+            bite -= 2;
+          }
+        }
       }
-
-
 
 /*
 //  for (auto &F : M) {
-    
+
 //    for (auto &BB : F) {
-      BranchInst *br;	
+      BranchInst *br;
       bool split = false;
       for (auto &I : BB) {
-	if (auto *icmp = dyn_cast<ICmpInst>(&I)) {
-	  if (!icmp->isEquality()) continue;
-	  if (!isa<ConstantInt>(icmp->getOperand(1))) continue;
-	  if (cast<ConstantInt>(icmp->getOperand(1))->getZExtValue() < 0x100) continue;
-	  br = cast<BranchInst>(icmp->getNextNode());
-	  (&BB)->splitBasicBlock(br);
-	  split = true;
-	  break;    
-	} 
+        if (auto *icmp = dyn_cast<ICmpInst>(&I)) {
+          if (!icmp->isEquality()) continue;
+          if (!isa<ConstantInt>(icmp->getOperand(1))) continue;
+          if (cast<ConstantInt>(icmp->getOperand(1))->getZExtValue() < 0x100)
+continue; br = cast<BranchInst>(icmp->getNextNode());
+          (&BB)->splitBasicBlock(br);
+          split = true;
+          break;
+        }
       }
       if (split) {
-	Instruction *o_br = (&BB)->getTerminator();
-	Value *o_cond = br->getCondition();
-	BranchInst *n_br = BranchInst::Create(br->getParent(), (br)->getSuccessor(1), o_cond, &BB);
-	o_br->eraseFromParent();
-	branch_mod(n_br, true);
-	branch_mod(br, false);
+        Instruction *o_br = (&BB)->getTerminator();
+        Value *o_cond = br->getCondition();
+        BranchInst *n_br = BranchInst::Create(br->getParent(),
+(br)->getSuccessor(1), o_cond, &BB); o_br->eraseFromParent(); branch_mod(n_br,
+true); branch_mod(br, false);
       }
 //    }
 rs()<<"For here !! ------------------------------------------------\n"<<F;
@@ -274,7 +265,7 @@ rs()<<"For here !! ------------------------------------------------\n"<<F;
 #endif
 #endif
 
-//      errs()<<"Modified BB------------------------------------\n"<<BB;
+      //      errs()<<"Modified BB------------------------------------\n"<<BB;
 
 #ifndef debug
 
@@ -321,39 +312,28 @@ rs()<<"For here !! ------------------------------------------------\n"<<F;
 #endif
     }
 
-
-  }   //for made gwal ho
-
+  }  // for made gwal ho
 
   /* Say something nice. */
 
   if (!be_quiet) {
-
-    if (!inst_blocks) WARNF("No instrumentation targets found.");
-    else OKF("Instrumented %u locations (%s mode, ratio %u%%).",
-             inst_blocks,
-             getenv("AFL_HARDEN") ? "hardened" : "non-hardened",
-             inst_ratio);
-
+    if (!inst_blocks)
+      WARNF("No instrumentation targets found.");
+    else
+      OKF("Instrumented %u locations (%s mode, ratio %u%%).", inst_blocks,
+          getenv("AFL_HARDEN") ? "hardened" : "non-hardened", inst_ratio);
   }
 
   return true;
-
 }
-
 
 static void registerAFLPass(const PassManagerBuilder &,
                             legacy::PassManagerBase &PM) {
-
   PM.add(new AFLCoverage());
-
 }
-
 
 static RegisterStandardPasses RegisterAFLPass(
     PassManagerBuilder::EP_OptimizerLast, registerAFLPass);
 
 static RegisterStandardPasses RegisterAFLPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerAFLPass);
-
-
